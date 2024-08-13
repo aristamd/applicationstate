@@ -150,7 +150,6 @@ export class StatePersistence {
      * @param {array<string>} live_keys An array of key names that represent the application state keys to monitor.
      *  These keys are tracked for real-time updates, ensuring that any changes in their associated values within
      *  the database are immediately reflected in the application.
-     * @param live_keys
      */
     initLiveQuery(live_keys) {
         live_keys.forEach((live_key) => {
