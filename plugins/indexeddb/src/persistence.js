@@ -154,6 +154,13 @@ export class StatePersistence {
     initLiveQuery(live_keys) {
         live_keys.forEach((live_key) => {
             liveQuery(() =>
+              // We need to support exact and prefix matches because object data is stored in indexedDB like this:
+              // key, value
+              // oauth_token_info.access_token, 82dda89d8923acaed...
+              // oauth_token_info.expires_in, 180
+              // For primitive data, it is stored like this:
+              // key, value
+              // jwt, 82dda89d8923acaed...
               Promise.all([
                   this.db.application_state.where('key').equals(live_key).toArray(),
                   this.db.application_state.where('key').startsWith(`${live_key}.`).toArray()
