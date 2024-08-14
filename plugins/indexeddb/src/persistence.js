@@ -1,6 +1,7 @@
 "use strict";
 
 import Dexie from 'dexie';
+import {liveQuery} from 'dexie';
 
 let ApplicationState;
 
@@ -33,7 +34,7 @@ export class StatePersistence {
     /**
      * Listen for a change in the application state and persist it in an optimized way.
      * We queue changes to ensure operations happen in order, since db writes and reads are async.
-     * 
+     *
      * @param state
      * @param previous_state
      * @param modified_name
@@ -143,4 +144,60 @@ export class StatePersistence {
             await processQueue.bind(this)();
         }
     };
+
+    /**
+     * Initialize live query
+     * @param {array<string>} live_keys An array of key names that represent the application state keys to monitor.
+     *  These keys are tracked for real-time updates, ensuring that any changes in their associated values within
+     *  the database are immediately reflected in the application.
+     */
+    initLiveQuery(live_keys) {
+        live_keys.forEach((live_key) => {
+            liveQuery(() =>
+              // We need to support exact and prefix matches because object data is stored in indexedDB like this:
+              // key, value
+              // oauth_token_info.access_token, 82dda89d8923acaed...
+              // oauth_token_info.expires_in, 180
+              // For primitive data, it is stored like this:
+              // key, value
+              // jwt, 82dda89d8923acaed...
+              Promise.all([
+                  this.db.application_state.where('key').equals(live_key).toArray(),
+                  this.db.application_state.where('key').startsWith(`${live_key}.`).toArray()
+              ]).then(([exact_matches, prefix_matches]) => {
+                  return [...exact_matches, ...prefix_matches];
+              })
+            ).subscribe({
+                next: items => {
+                    items.forEach(({key, value}) => {
+                        const app_key = `app.${key}`;
+                        const app_value = ApplicationState.get(app_key);
+                        // If the database value does not equal the application value, proceed
+                        // to update the application from the database
+                        if(value !== JSON.stringify(app_value)) {
+                            try {
+                                value = JSON.parse(value);
+                            } catch (err) {
+                                //noop
+                            }
+                            try {
+                                if(value === undefined || value === '') {
+                                    if(app_value !== undefined && app_value !== '') {
+                                        ApplicationState.rm(app_key);
+                                    }
+                                } else {
+                                    ApplicationState._assignValue(app_key, value);
+                                }
+                            } catch (err) {
+                                console.error(`Error syncing database key '${key}' with application state:`, err);
+                            }
+                        }
+                    });
+                },
+                error: err => {
+                    console.error('Error in liveQuery:', err);
+                }
+            });
+        });
+    }
 }
