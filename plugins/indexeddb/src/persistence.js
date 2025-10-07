@@ -26,8 +26,10 @@ export class StatePersistence {
         );
         this.db = db;
         this.operation_queue = [];
+        this.persist_resolvers = new Map(); // Map of path -> array of resolve functions
 
         ApplicationState.listen('app', this.onAppChange.bind(this));
+        ApplicationState.registerPersistence(this);
     }
 
     /**
@@ -140,7 +142,41 @@ export class StatePersistence {
             }
 
             this.operation_queue.shift();
+
+            // Resolve all promises waiting for this specific path
+            if (this.persist_resolvers.has(full_path)) {
+                const resolvers = this.persist_resolvers.get(full_path);
+                while (resolvers.length > 0) {
+                    const resolve = resolvers.shift();
+                    resolve();
+                }
+                this.persist_resolvers.delete(full_path);
+            }
+
             await processQueue.bind(this)();
         }
     };
+
+    /**
+     * Returns a promise that resolves when the persistence operation for the specified path is complete.
+     * @param {String} path The full path (e.g., 'app.my_data') to wait for
+     * @returns {Promise<void>}
+     */
+    waitForPersist(path) {
+        // Check if this path is currently in the queue or being processed
+        const path_in_queue = this.operation_queue.some(item => item.full_path === path);
+
+        // If path is not in queue, resolve immediately
+        if (!path_in_queue) {
+            return Promise.resolve();
+        }
+
+        // Otherwise, add a resolver to be called when this specific path is persisted
+        return new Promise((resolve) => {
+            if (!this.persist_resolvers.has(path)) {
+                this.persist_resolvers.set(path, []);
+            }
+            this.persist_resolvers.get(path).push(resolve);
+        });
+    }
 }

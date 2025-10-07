@@ -172,8 +172,9 @@ class ApplicationState {
      *
      * @param target
      * @param object an optional alternate object to operate on instead of ApplicationState._state
+     * @param wait_for_persist if true, waits for persistence to complete before resolving
      */
-    static async rm(target, object) {
+    static async rm(target, object, wait_for_persist = false) {
         object = object || ApplicationState._state;
         let original_path = target; //save this for notifications
         if (target === 'app')
@@ -246,6 +247,12 @@ class ApplicationState {
                 save_previous: true
             };
         await ApplicationState.notify(original_path, false, options);
+
+        // If wait_for_persist is true and persistence instances are registered, wait for persistence to complete
+        if (wait_for_persist && options.persist && ApplicationState._persistence_instances.length) {
+            console.log("Waiting for persistence to complete for " + original_path);
+            await Promise.all(ApplicationState._persistence_instances.map(instance => instance.waitForPersist(original_path)));
+        }
     }
 
     /**
@@ -725,5 +732,15 @@ ApplicationState._state = {};
 ApplicationState._listeners = [];
 ApplicationState._listenerKey = 0;
 ApplicationState._options = {};
+ApplicationState._persistence_instances = [];
+
+/**
+ * Register a persistence instance for tracking when persistence operations complete.
+ * Used by persistence plugins to enable wait_for_persist option.
+ * @param {Object} instance The persistence instance (must have a wait_for_persist() method)
+ */
+ApplicationState.registerPersistence = function(instance) {
+    ApplicationState._persistence_instances.push(instance);
+};
 
 export default ApplicationState;
